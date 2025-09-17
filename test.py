@@ -55,39 +55,6 @@ else:
         load_dotenv(find_dotenv())
 
 
-# --- Hot-reloadable settings ---
-class Settings:
-    def __init__(self, env_path: Path):
-        self.env_path = env_path
-        self.riot_api_key = os.getenv("RIOT_API_KEY", "")
-
-    def set_riot_key(self, new_key: str, persist: bool = True):
-        self.riot_api_key = (new_key or "").strip()
-        if persist:
-            # Atomic write to .env-style file
-            text = self.env_path.read_text(encoding="utf-8") if self.env_path.exists() else ""
-            lines = []
-            seen = False
-            for ln in text.splitlines():
-                if ln.startswith("RIOT_API_KEY="):
-                    lines.append(f"RIOT_API_KEY={self.riot_api_key}")
-                    seen = True
-                else:
-                    lines.append(ln)
-            if not seen:
-                lines.append(f"RIOT_API_KEY={self.riot_api_key}")
-            tmp = self.env_path.with_suffix(self.env_path.suffix + ".tmp")
-            tmp.write_text("\n".join([l for l in lines if l is not None]) + "\n", encoding="utf-8")
-            tmp.replace(self.env_path)
-
-    def reload_from_env(self):
-        if self.env_path.exists():
-            for ln in self.env_path.read_text(encoding="utf-8").splitlines():
-                if ln.startswith("RIOT_API_KEY="):
-                    self.riot_api_key = ln.split("=", 1)[1].strip()
-                    break
-
-SETTINGS = Settings(ENV_PATH)
 DISCORD_TOKEN = os.getenv("DISCORD_TOKEN", "")
 RIOT_API_KEY = os.getenv("RIOT_API_KEY", "")
 GUILD_ID = os.getenv("GUILD_ID")
@@ -177,7 +144,7 @@ class RiotHTTP:
     async def _get(self, url: str, params: Dict | None = None, retry: int = 2):
         if params is None:
             params = {}
-        params["api_key"] = SETTINGS.riot_api_key
+        params["api_key"] = os.getenv("RIOT_API_KEY", "")
 
         for attempt in range(retry + 1):
             async with self.session.get(url, params=params, timeout=30) as resp:
@@ -750,7 +717,7 @@ if __name__ == "__main__":
         log.error("Missing DISCORD_TOKEN in env.")
         raise SystemExit(1)
     if not RIOT_API_KEY:
-        log.warning("RIOT_API_KEY missing at startup; set it with /admin_set_riot_key or /admin_reload_env.")
+        log.warning("RIOT_API_KEY missing at startup; set it in bot.env and restart the service.")
 
     async def main():
         db = db_connect()
@@ -773,19 +740,8 @@ if __name__ == "__main__":
                 return interaction.user.guild_permissions.administrator
             return _check(predicate)
 
-        @bot.tree.command(name="admin_set_riot_key", description="(Admin) Update RIOT_API_KEY live")
-        @app_commands.describe(key="Paste the new Riot Dev key", persist="Also save to bot.env")
-        @is_admin()
-        async def admin_set_riot_key(interaction: discord.Interaction, key: str, persist: bool = True):
-            SETTINGS.set_riot_key(key, persist=persist)
-            await interaction.response.send_message("✅ Riot key updated" + (" and saved to bot.env." if persist else "."), ephemeral=True)
-
-        @bot.tree.command(name="admin_reload_env", description="(Admin) Reload RIOT_API_KEY from bot.env")
-        @is_admin()
-        async def admin_reload_env(interaction: discord.Interaction):
-            SETTINGS.reload_from_env()
-            await interaction.response.send_message("🔄 Reloaded RIOT_API_KEY from bot.env.", ephemeral=True)
-
+        
+        
         @bot.tree.command(name="admin_restart", description="(Admin) Restart the bot process")
         @is_admin()
         async def admin_restart(interaction: discord.Interaction):
